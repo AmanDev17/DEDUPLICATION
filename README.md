@@ -1,5 +1,5 @@
 <<<<<<< HEAD
-# Dedup Pipeline v2 — Django Web App
+# Dedup Pipeline — Django Web App
 
 A full implementation of the **wHash + MinHash + AKAZE + Graph** dedup pipeline
 with a web interface for human verification of detected duplicate pages.
