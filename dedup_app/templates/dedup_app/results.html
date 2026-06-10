@@ -1,0 +1,296 @@
+{% extends "dedup_app/base.html" %}
+{% block title %}Results — Dedup Pipeline{% endblock %}
+
+{% block content %}
+<div class="results-page">
+
+  <!-- ── Summary banner ──────────────────────────────────────────────── -->
+  <div class="summary-banner">
+    <div class="summary-stat">
+      <div class="stat-num">{{ report.total_pages }}</div>
+      <div class="stat-label">Total pages ingested</div>
+    </div>
+    <div class="summary-stat stat-highlight">
+      <div class="stat-num">{{ report.total_clusters }}</div>
+      <div class="stat-label">Duplicate clusters</div>
+    </div>
+    <div class="summary-stat stat-warn">
+      <div class="stat-num">{{ report.total_duplicates }}</div>
+      <div class="stat-label">Pages in clusters</div>
+    </div>
+    <div class="summary-stat stat-ok">
+      <div class="stat-num">{{ report.unique_pages }}</div>
+      <div class="stat-label">Unique pages</div>
+    </div>
+  </div>
+
+  <!-- ── Detection method legend ─────────────────────────────────────── -->
+  <div class="detection-legend">
+    <span class="legend-title">Detection layers:</span>
+    <span class="det-badge det-ssim">● SSIM — Structural Similarity (windowed, tilt-robust)</span>
+    <span class="det-badge det-akaze">● AKAZE — Keypoint matching (rotation-invariant fallback)</span>
+  </div>
+
+  <div class="results-toolbar">
+    <h2 class="results-section-title">
+      📁 Session: <code>{{ job_id|truncatechars:16 }}…</code>
+    </h2>
+    <a href="{% url 'index' %}" class="btn-outline">+ New Job</a>
+  </div>
+
+  <!-- ── Clusters ────────────────────────────────────────────────────── -->
+  <div class="folder-section">
+    <div class="folder-label">
+      <span class="folder-icon">📁</span>
+      <span>clusters/</span>
+      <span class="folder-count">
+        {{ report.total_clusters }} group{% if report.total_clusters != 1 %}s{% endif %}
+        {% if report.cross_folder_clusters %}
+          · <span class="badge-cross">{{ report.cross_folder_clusters }} cross-folder</span>
+        {% endif %}
+        {% if report.within_folder_clusters %}
+          · <span class="badge-intra">{{ report.within_folder_clusters }} within-folder</span>
+        {% endif %}
+        {% if report.within_doc_clusters %}
+          · <span class="badge-infile">{{ report.within_doc_clusters }} within-doc</span>
+        {% endif %}
+      </span>
+    </div>
+
+    {% if report.clusters %}
+    {% for cluster in report.clusters %}
+    <div class="cluster-card" id="cluster-{{ cluster.cluster_id }}">
+      <div class="cluster-header">
+        <div class="cluster-badge">cluster_{{ cluster.cluster_id|stringformat:"03d" }}</div>
+        <div class="cluster-meta">
+          <span class="cluster-count" id="ccount-{{ cluster.cluster_id }}">
+            {{ cluster.size }} duplicate page{% if cluster.size != 1 %}s{% endif %}
+          </span>
+          <span class="cluster-type-badge cluster-type-{{ cluster.cluster_type }}">
+            {{ cluster.cluster_label }}
+          </span>
+          <span class="cluster-dir">{{ cluster.cluster_dir }}</span>
+        </div>
+        <button class="cluster-toggle"
+                onclick="toggleCluster({{ cluster.cluster_id }}, this)">
+          ▾ collapse
+        </button>
+      </div>
+
+      <div class="cluster-grid"
+           id="cgrid-{{ cluster.cluster_id }}"
+           data-cluster="{{ cluster.cluster_id }}">
+        {% for member in cluster.members %}
+        <div class="page-card" id="pc-{{ cluster.cluster_id }}-{{ member.page_index }}">
+
+          <!-- Thumbnail (color image) -->
+          <div class="page-thumb-wrap"
+               onclick="openLightbox(
+                 '{{ media_url }}clusters/{{ member.thumb_rel }}',
+                 '{{ member.label|escapejs }}',
+                 '{{ member.det_label|escapejs }}',
+                 {{ member.det_score }},
+                 {{ member.det_angle }}
+               )">
+            <img class="page-thumb"
+                 src="{{ media_url }}clusters/{{ member.thumb_rel }}"
+                 alt="{{ member.label }}" loading="lazy">
+            <div class="thumb-zoom-hint">🔍 Preview</div>
+            <div class="page-thumb-overlay">
+              <span class="page-origin-badge">{{ member.source }}</span>
+            </div>
+          </div>
+
+          <!-- Page info -->
+          <div class="page-info">
+            <div class="page-file" title="{{ member.source }}">
+              {{ member.source }}
+            </div>
+            <div class="page-num">Page {{ member.page_number }}</div>
+            <div class="page-idx">Index #{{ member.page_index }}</div>
+          </div>
+
+          <!-- Detection badge — the key new feature -->
+          <div class="det-info-badge"
+               style="border-color: {{ member.det_color }}20;
+                      background: {{ member.det_color }}12;">
+            <span class="det-dot" style="background:{{ member.det_color }}"></span>
+            <span class="det-stage-name" style="color:{{ member.det_color }}">
+              {{ member.det_label }}
+            </span>
+            <span class="det-score">
+              score: {{ member.det_score }}
+              {% if member.det_angle != 0.0 %}
+                · tilt: {{ member.det_angle }}°
+              {% endif %}
+            </span>
+          </div>
+
+          <button class="btn-delete"
+                  onclick="deletePage(
+                    '{{ job_id }}',
+                    {{ cluster.cluster_id }},
+                    {{ member.page_index }},
+                    this
+                  )"
+                  title="Remove from cluster">
+            ✕ Remove
+          </button>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="cluster-empty-msg"
+           id="empty-{{ cluster.cluster_id }}"
+           style="display:none">
+        ✓ All pages reviewed in this cluster.
+      </div>
+    </div>
+    {% endfor %}
+
+    {% else %}
+    <div class="no-clusters">
+      <div class="no-clusters-icon">✓</div>
+      <h3>No duplicate pages detected</h3>
+      <p>All {{ report.total_pages }} pages appear to be unique.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Unique pages ─────────────────────────────────────────────────── -->
+  <div class="folder-section unique-section">
+    <div class="folder-label"
+         onclick="toggleUnique(this)"
+         style="cursor:pointer">
+      <span class="folder-icon">📂</span>
+      <span>unique/</span>
+      <span class="folder-count">
+        {{ report.unique_pages }} page{% if report.unique_pages != 1 %}s{% endif %}
+      </span>
+      <span class="folder-toggle-hint">▾ click to expand</span>
+    </div>
+
+    <div class="unique-grid" id="uniqueGrid" style="display:none">
+      {% for upage in report.unique_pages_list %}
+      <div class="unique-card">
+        <div class="page-thumb-wrap"
+             onclick="openLightbox(
+               '{{ media_url }}clusters/{{ upage.thumb_rel }}',
+               '{{ upage.label|escapejs }}',
+               'Unique page', 0, 0
+             )">
+          <img class="page-thumb unique-thumb"
+               src="{{ media_url }}clusters/{{ upage.thumb_rel }}"
+               alt="{{ upage.label }}" loading="lazy">
+          <div class="thumb-zoom-hint">🔍</div>
+        </div>
+        <div class="page-info">
+          <div class="page-file" title="{{ upage.source }}">{{ upage.source }}</div>
+          <div class="page-num">Page {{ upage.page_number }}</div>
+        </div>
+        <!-- Rejection reason badge -->
+        <div class="rej-badge" style="border-color:{{ upage.rej_color }}30;background:{{ upage.rej_color }}10;">
+          <span class="rej-dot" style="background:{{ upage.rej_color }}"></span>
+          <div class="rej-content">
+            <span class="rej-explain" style="color:{{ upage.rej_color }}">{{ upage.rej_explain }}</span>
+            {% if upage.rej_detail %}
+            <span class="rej-detail">{{ upage.rej_detail }}</span>
+            {% endif %}
+            {% if upage.rej_score > 0 %}
+            <span class="rej-score">best score: {{ upage.rej_score }}</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% empty %}
+      <p class="no-unique">No unique pages — every page has at least one duplicate.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Lightbox ───────────────────────────────────────────────────────── -->
+<div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
+  <div class="lightbox-box" onclick="event.stopPropagation()">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <div class="lightbox-meta" id="lightboxMeta"></div>
+    <img class="lightbox-img" id="lightboxImg" src="" alt="">
+    <div class="lightbox-det" id="lightboxDet"></div>
+  </div>
+</div>
+
+<script>
+function openLightbox(src, label, detLabel, detScore, detAngle) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('lightboxMeta').textContent = label;
+  const det = document.getElementById('lightboxDet');
+  if (detLabel && detLabel !== 'Unique page') {
+    let txt = detLabel;
+    if (detScore > 0) txt += '  ·  score: ' + detScore.toFixed(4);
+    if (detAngle !== 0) txt += '  ·  tilt correction: ' + detAngle + '°';
+    det.textContent = txt;
+    det.style.display = 'block';
+  } else {
+    det.style.display = 'none';
+  }
+  document.getElementById('lightbox').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('active');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLightbox();
+});
+
+function toggleCluster(id, btn) {
+  const grid   = document.getElementById('cgrid-' + id);
+  const hidden = grid.style.display === 'none';
+  grid.style.display  = hidden ? 'grid' : 'none';
+  btn.textContent     = hidden ? '▾ collapse' : '▸ expand';
+}
+
+function toggleUnique(label) {
+  const grid   = document.getElementById('uniqueGrid');
+  const hint   = label.querySelector('.folder-toggle-hint');
+  const hidden = grid.style.display === 'none';
+  grid.style.display  = hidden ? 'grid' : 'none';
+  hint.textContent    = hidden ? '▴ click to collapse' : '▾ click to expand';
+}
+
+function deletePage(jobId, clusterId, pageIndex, btn) {
+  btn.disabled    = true;
+  btn.textContent = '…';
+  fetch(`/delete-cluster/${jobId}/${clusterId}/${pageIndex}/`, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': getCookie('csrftoken') },
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.ok) return;
+    const card = document.getElementById(`pc-${clusterId}-${pageIndex}`);
+    card.style.transition = 'all 0.3s';
+    card.style.opacity    = '0';
+    card.style.transform  = 'scale(0.85)';
+    setTimeout(() => {
+      card.remove();
+      const grid      = document.getElementById('cgrid-' + clusterId);
+      const remaining = grid ? grid.children.length : 0;
+      const countEl   = document.getElementById('ccount-' + clusterId);
+      if (countEl) countEl.textContent =
+        remaining + ' duplicate page' + (remaining !== 1 ? 's' : '');
+      if (remaining === 0)
+        document.getElementById('empty-' + clusterId).style.display = 'block';
+    }, 320);
+  })
+  .catch(() => { btn.disabled = false; btn.textContent = '✕ Remove'; });
+}
+
+function getCookie(name) {
+  const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+  return v ? v[2] : '';
+}
+</script>
+{% endblock %}

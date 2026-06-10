@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Dedup Pipeline{% endblock %}</title>
+{% load static %}
+<link rel="stylesheet" href="{% static 'dedup_app/css/main.css' %}">
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<header class="site-header">
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">dedup<em>pipeline</em> <sup>v2</sup></span>
+    </div>
+    <nav class="header-nav">
+      <a href="{% url 'index' %}">New Job</a>
+    </nav>
+  </div>
+</header>
+<main class="site-main">
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  wHash · MinHash · AKAZE · Graph — fully local, zero cloud
+</footer>
+</body>
+</html>

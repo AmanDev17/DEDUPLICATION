@@ -1,0 +1,16 @@
+# ── Core (required) ────────────────────────────────────────────────────────────
+django>=4.2
+pillow>=10.0
+pymupdf>=1.23        # PDF page rendering (fitz)
+python-docx>=1.1     # DOCX image extraction
+numpy>=1.24
+
+# ── Tilt detection: install AT LEAST ONE of these ─────────────────────────────
+# Option A — Best accuracy (recommended)
+opencv-python>=4.8   # AKAZE keypoint matching — most accurate tilt detection
+
+# Option B — Pure Python fallback (if OpenCV install fails)
+scikit-image>=0.21   # ORB keypoint matching — good accuracy, no C++ deps
+
+# If NEITHER is installed, the pipeline falls back to NCC-only comparison
+# which detects 0°/90°/180°/270° duplicates but misses arbitrary angles.

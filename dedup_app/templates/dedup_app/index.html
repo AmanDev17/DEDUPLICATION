@@ -1,0 +1,207 @@
+{% extends "dedup_app/base.html" %}
+{% block title %}Upload — Dedup Pipeline v2{% endblock %}
+
+{% block content %}
+<div class="upload-page">
+
+  <div class="upload-hero">
+    <h1>Duplicate Page Detector</h1>
+    <p class="hero-sub">wHash · dHash · MinHash · SSIM · AKAZE · Tilt-Robust · Graph Clustering</p>
+  </div>
+
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+  <!-- ── Step 1: Choose Mode ─────────────────────────────────────────── -->
+  <div class="wizard-step" id="step1">
+    <div class="step-header">
+      <span class="step-num">1</span>
+      <span class="step-title">What do you want to compare?</span>
+    </div>
+    <div class="mode-grid">
+      <div class="mode-card" data-mode="single_file" onclick="selectMode(this)">
+        <div class="mode-icon">📄</div>
+        <div class="mode-name">Single File</div>
+        <div class="mode-desc">Find duplicate pages <em>within</em> one PDF or DOCX</div>
+        <div class="mode-hint">Upload: 1 PDF or DOCX</div>
+      </div>
+      <div class="mode-card" data-mode="two_files" onclick="selectMode(this)">
+        <div class="mode-icon">📄📄</div>
+        <div class="mode-name">Two Files</div>
+        <div class="mode-desc">Compare two documents against each other</div>
+        <div class="mode-hint">Upload: 2 files (any format)</div>
+      </div>
+      <div class="mode-card" data-mode="single_folder" onclick="selectMode(this)">
+        <div class="mode-icon">📁</div>
+        <div class="mode-name">Single Folder</div>
+        <div class="mode-desc">Find duplicates across all files in a folder</div>
+        <div class="mode-hint">Upload: 1 ZIP of your folder</div>
+      </div>
+      <div class="mode-card" data-mode="two_folders" onclick="selectMode(this)">
+        <div class="mode-icon">📁📁</div>
+        <div class="mode-name">Two Folders</div>
+        <div class="mode-desc">Cross-compare two collections</div>
+        <div class="mode-hint">Upload: 2 ZIP files (one per folder)</div>
+      </div>
+      <div class="mode-card" data-mode="multi_files" onclick="selectMode(this)">
+        <div class="mode-icon">🗂</div>
+        <div class="mode-name">Multiple Files</div>
+        <div class="mode-desc">Any mix of PDFs, DOCX, images — full cross-dedup</div>
+        <div class="mode-hint">Upload: as many files as you want</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 2: Upload Files ────────────────────────────────────────── -->
+  <div class="wizard-step" id="step2" style="display:none">
+    <div class="step-header">
+      <span class="step-num">2</span>
+      <span class="step-title" id="step2Title">Upload your files</span>
+      <button class="step-back" onclick="goBack()">← Change mode</button>
+    </div>
+
+    <div class="mode-summary" id="modeSummary"></div>
+
+    <form class="upload-form" method="post" action="{% url 'upload' %}"
+          enctype="multipart/form-data" id="uploadForm">
+      {% csrf_token %}
+      <input type="hidden" name="mode" id="modeInput" value="">
+
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-icon">⬆</div>
+        <div class="drop-label">Drop files here or <label class="file-browse" for="fileInput">browse</label></div>
+        <div class="drop-hint" id="dropHint">Select files</div>
+        <input type="file" id="fileInput" name="files" multiple
+               accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp,.zip"
+               style="display:none">
+      </div>
+
+      <div class="file-list" id="fileList"></div>
+
+      <div class="upload-actions">
+        <div class="file-count-badge" id="fileCountBadge" style="display:none">
+          <span id="fileCountText">0 files selected</span>
+        </div>
+        <button class="btn-primary" type="submit" id="submitBtn" disabled>
+          🚀 Run Pipeline
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Pipeline stages visual ──────────────────────────────────────── -->
+  <div class="pipeline-stages">
+    <div class="stage-row">
+      <div class="stage-pill stage-green">1 · Ingestion</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-green">2 · Hashing</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-green">3 · Bucketization</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-purple">4 · Similarity + Tilt</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-purple">5 · Graph</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-purple">6 · Clustering</div><div class="stage-arrow">→</div>
+      <div class="stage-pill stage-green">7 · Reporter</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const MODE_CONFIG = {
+  single_file:   { title:'Upload 1 File', hint:'Select one PDF or DOCX file', max:1, accept:'.pdf,.docx,.doc' },
+  two_files:     { title:'Upload 2 Files', hint:'Select exactly 2 files (PDF, DOCX, images)', max:2, accept:'.pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.bmp,.webp' },
+  single_folder: { title:'Upload Folder as ZIP', hint:'ZIP your folder first, then upload the .zip', max:1, accept:'.zip,.pdf,.docx' },
+  two_folders:   { title:'Upload 2 Folder ZIPs', hint:'ZIP each folder separately, then upload both', max:2, accept:'.zip' },
+  multi_files:   { title:'Upload Multiple Files', hint:'Any mix of PDFs, DOCX, images, or ZIPs', max:99, accept:'.pdf,.docx,.doc,.png,.jpg,.jpeg,.tiff,.bmp,.webp,.zip' },
+};
+
+const MODE_SUMMARIES = {
+  single_file:   '📄 <strong>Single File mode</strong> — pipeline will detect duplicate pages within the document.',
+  two_files:     '📄📄 <strong>Two Files mode</strong> — pipeline will compare both documents for shared pages.',
+  single_folder: '📁 <strong>Single Folder mode</strong> — pipeline will detect duplicates across all files in the folder.',
+  two_folders:   '📁📁 <strong>Two Folders mode</strong> — pipeline will cross-compare both collections for shared pages.',
+  multi_files:   '🗂 <strong>Multiple Files mode</strong> — full cross-dedup across all uploaded files.',
+};
+
+let selectedMode = '';
+let dt = new DataTransfer();
+
+function selectMode(card) {
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  selectedMode = card.dataset.mode;
+
+  const cfg = MODE_CONFIG[selectedMode];
+  document.getElementById('step1').style.display = 'none';
+  document.getElementById('step2').style.display = 'block';
+  document.getElementById('step2Title').textContent = cfg.title;
+  document.getElementById('dropHint').textContent = cfg.hint;
+  document.getElementById('modeInput').value = selectedMode;
+  document.getElementById('modeSummary').innerHTML = MODE_SUMMARIES[selectedMode];
+  document.getElementById('fileInput').accept = cfg.accept;
+  dt = new DataTransfer();
+  renderFiles();
+}
+
+function goBack() {
+  document.getElementById('step1').style.display = 'block';
+  document.getElementById('step2').style.display = 'none';
+  dt = new DataTransfer();
+}
+
+function renderFiles() {
+  const list = document.getElementById('fileList');
+  const badge = document.getElementById('fileCountBadge');
+  const btn = document.getElementById('submitBtn');
+  const files = Array.from(dt.files);
+  list.innerHTML = '';
+  if (!files.length) { btn.disabled = true; badge.style.display='none'; return; }
+
+  const cfg = MODE_CONFIG[selectedMode];
+  const valid = files.length <= cfg.max;
+  btn.disabled = !valid;
+  badge.style.display = 'flex';
+  document.getElementById('fileCountText').textContent =
+    files.length + ' file' + (files.length!==1?'s':'') + ' selected' +
+    (!valid ? ` (max ${cfg.max} for this mode)` : '');
+
+  files.forEach((f, i) => {
+    const size = f.size > 1048576 ? (f.size/1048576).toFixed(1)+' MB' : (f.size/1024).toFixed(0)+' KB';
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    row.innerHTML = `
+      <span class="file-ext">${f.name.split('.').pop().toUpperCase()}</span>
+      <span class="file-name">${f.name}</span>
+      <span class="file-size">${size}</span>
+      <button type="button" class="file-remove" onclick="removeFile(${i})">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function removeFile(idx) {
+  const newDt = new DataTransfer();
+  Array.from(dt.files).forEach((f,i) => { if(i!==idx) newDt.items.add(f); });
+  dt = newDt;
+  document.getElementById('fileInput').files = dt.files;
+  renderFiles();
+}
+
+function addFiles(newFiles) {
+  const cfg = MODE_CONFIG[selectedMode];
+  Array.from(newFiles).forEach(f => {
+    if (dt.files.length < cfg.max) dt.items.add(f);
+  });
+  document.getElementById('fileInput').files = dt.files;
+  renderFiles();
+}
+
+const dz = document.getElementById('dropZone');
+document.getElementById('fileInput').addEventListener('change', e => addFiles(e.target.files));
+dz.addEventListener('click', () => document.getElementById('fileInput').click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); addFiles(e.dataTransfer.files); });
+
+document.getElementById('uploadForm').addEventListener('submit', () => {
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('submitBtn').textContent = '⏳ Uploading…';
+});
+</script>
+{% endblock %}

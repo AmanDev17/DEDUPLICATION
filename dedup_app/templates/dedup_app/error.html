@@ -1,0 +1,10 @@
+{% extends "dedup_app/base.html" %}
+{% block title %}Error — Dedup Pipeline v2{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="error-icon">⚠</div>
+  <h1>Pipeline Error</h1>
+  <pre class="error-trace">{{ error }}</pre>
+  <a href="{% url 'index' %}" class="btn-primary">← Try Again</a>
+</div>
+{% endblock %}

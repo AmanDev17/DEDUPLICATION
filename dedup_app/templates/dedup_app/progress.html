@@ -1,0 +1,102 @@
+{% extends "dedup_app/base.html" %}
+{% block title %}Processing — Dedup Pipeline v2{% endblock %}
+
+{% block content %}
+<div class="progress-page">
+  <div class="progress-hero">
+    <div class="spinner" id="spinner"></div>
+    <h1 id="stageLabel">Initialising pipeline…</h1>
+    <p id="stageDetail" class="stage-detail">Job {{ job_id|truncatechars:12 }}</p>
+  </div>
+
+  <div class="progress-bar-wrap">
+    <div class="progress-bar" id="progressBar" style="width:0%"></div>
+  </div>
+  <div class="progress-pct" id="progressPct">0%</div>
+
+  <div class="pipeline-live">
+    {% for s in stages %}
+    <div class="live-stage" id="stage_{{ s.key }}">
+      <span class="ls-dot"></span>
+      <span class="ls-label">{{ s.label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <p class="progress-note">
+    Large documents may take a moment. This page auto-redirects when done.
+  </p>
+</div>
+
+<script>
+const stages = {
+  queued:        'Queued — waiting to start',
+  ingestion:     'Stage 1 · Ingestion — converting pages to images',
+  hashing:       'Stage 2 · Hashing — wHash · dHash · MinHash',
+  bucketization: 'Stage 3 · Bucketization — LSH bucketing',
+  similarity:    'Stage 4 · Similarity gate — Hamming → SSIM → AKAZE',
+  clustering:    'Stages 5–6 · Graph · Union-Find clustering',
+  reporting:     'Stage 7 · Reporter — saving cluster thumbnails',
+  done:          'Complete! Redirecting…',
+};
+
+const stageOrder = ['ingestion','hashing','bucketization','similarity','clustering','reporting'];
+
+const label   = document.getElementById('stageLabel');
+const detail  = document.getElementById('stageDetail');
+const bar     = document.getElementById('progressBar');
+const pct     = document.getElementById('progressPct');
+const spinner = document.getElementById('spinner');
+
+function setStage(stage, progress) {
+  label.textContent = stages[stage] || stage;
+  bar.style.width   = progress + '%';
+  pct.textContent   = progress + '%';
+
+  stageOrder.forEach(k => {
+    const el = document.getElementById('stage_' + k);
+    if (!el) return;
+    el.classList.remove('ls-active', 'ls-done');
+  });
+
+  let found = false;
+  for (let i = stageOrder.length - 1; i >= 0; i--) {
+    const k = stageOrder[i];
+    const el = document.getElementById('stage_' + k);
+    if (!el) continue;
+    if (k === stage) { el.classList.add('ls-active'); found = true; }
+    else if (found)  { el.classList.add('ls-done'); }
+  }
+}
+
+const evtSrc = new EventSource('/progress/{{ job_id }}/', {withCredentials: false});
+evtSrc.onmessage = e => {
+  const data = JSON.parse(e.data);
+  setStage(data.stage, data.progress);
+
+  if (data.status === 'done') {
+    evtSrc.close();
+    spinner.style.display = 'none';
+    setTimeout(() => { window.location = '/results/{{ job_id }}/'; }, 600);
+  } else if (data.status === 'error') {
+    evtSrc.close();
+    spinner.style.display = 'none';
+    label.textContent = '❌ Error: ' + (data.error || 'Unknown error');
+    bar.style.background = '#e24b4a';
+  }
+};
+evtSrc.onerror = () => {
+  evtSrc.close();
+  label.textContent = 'Connection lost — checking status…';
+  setTimeout(() => window.location.reload(), 3000);
+};
+</script>
+
+{% comment %}Pass stages to template context{% endcomment %}
+{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Override stages list with JS — template provides fallback */
+</style>
+{% endblock %}
