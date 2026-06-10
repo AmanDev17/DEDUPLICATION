@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Dedup Pipeline — Django Web App
 
 A full implementation of the **wHash + MinHash + AKAZE + Graph** dedup pipeline
@@ -93,5 +92,4 @@ dedup_project/
     └── tmp/                LibreOffice conversion temp files
 ```
 =======
-# DEDUPLICATION
->>>>>>> 
+
